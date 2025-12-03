@@ -46,19 +46,19 @@ async def create_database():
 
 @app.post('/create-book')
 async def add_book(new_book: CreateBookModel, session: SessionDep):
-    session.add(new_book)
+    session.add(Book(title=new_book.title, author=new_book.author))
     await session.commit()
     return {'True': 'Книга добавлена'}
 
 async def get_pages(limit: int, offset: int, session: SessionDep):
     query = select(Book).limit(limit).offset(offset)
-    respons = await session.execute(query)
+    respons = (await session.execute(query)).scalars().all()
     return respons
 
-PaginatorDep = Annotated[list[dict], Depends(get_pages)]
+PaginatorDep = Annotated[list[BookModel], Depends(get_pages)]
 
 @app.get('/get-book_pages')
-async def get_books(page_books: PaginatorDep) -> list[dict]:
+async def get_books(page_books: PaginatorDep) -> list[BookModel]:
     return page_books
 
 if __name__ == '__main__':
