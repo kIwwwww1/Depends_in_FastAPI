@@ -1,58 +1,65 @@
+import uvicorn
 from typing import Annotated
-from pydantic import BaseModel
 from fastapi import FastAPI, Depends
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from pydantic import BaseModel, Field
 from sqlalchemy import select
-
-engine = create_async_engine('sqlite+aiosqlite:///books.db')
-new_session = async_sessionmaker(engine)
+from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
+from sqlalchemy.orm import Mapped, mapped_column, DeclarativeBase
 
 app = FastAPI()
 
-async def get_session():
-    async with new_session() as session:
-        yield session
-
-SessionDep = Annotated[AsyncSession, Depends(get_session)]
+async_engine = create_async_engine('sqlite+aiosqlite:///mydb.db')
+async_session = async_sessionmaker(async_engine, expire_on_commit=False)
 
 class Base(DeclarativeBase):
     pass
 
-
-class BookORM(Base):
+class Book(Base):
     __tablename__ = 'books'
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    title: Mapped[str] = mapped_column(nullable=False)
-    author: Mapped[str] = mapped_column(nullable=False)
+    title: Mapped[str] 
+    author: Mapped[str] 
 
-class BookAdd(BaseModel):
-    title: str
-    author: str
+class CreateBookModel(BaseModel):
+    title: str = Field(min_length=5)
+    author: str = Field(min_length=5)
 
-class Book(BaseModel):
-    id: int
+class BookModel(CreateBookModel):
+    id: int = Field(ge=1)
 
-@app.post('/create_database')
+
+async def get_session():
+    async with async_session() as session:
+        yield session
+
+
+SessionDep = Annotated[AsyncSession, Depends(get_session)]
+
+@app.get('/create-databse')
 async def create_database():
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.drop_all)
-        await conn.run_sync(Base.metadata.create_all)
-    return {'Ok': 'True'}
+    async with async_engine.begin() as connection:
+        await connection.run_sync(Base.metadata.drop_all)
+        await connection.run_sync(Base.metadata.create_all)
+    return {'True': 'База создана'}
+    
 
-@app.post('/create_book')
-async def create_new_book(data: BookAdd, session: SessionDep):
-    new_book = BookORM(
-        title=data.title,
-        author=data.author)
+@app.post('/create-book')
+async def add_book(new_book: CreateBookModel, session: SessionDep):
     session.add(new_book)
     await session.commit()
-    return {'Ok': 'True'}
+    return {'True': 'Книга добавлена'}
 
-@app.get('/books')
-async def get_books(session: SessionDep, limit:int, offset: int):
-    query = select(BookORM).limit(limit).offset(offset)
+async def get_pages(limit: int, offset: int, session: SessionDep):
+    query = select(Book).limit(limit).offset(offset)
     respons = await session.execute(query)
-    return respons.scalars().all()
+    return respons
 
+PaginatorDep = Annotated[list[dict], Depends(get_pages)]
+
+@app.get('/get-book_pages')
+async def get_books(page_books: PaginatorDep) -> list[dict]:
+    return page_books
+
+if __name__ == '__main__':
+    uvicorn.run('main:app', reload=True)
